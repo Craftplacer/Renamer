@@ -1,13 +1,15 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace Renamer
 {
     public partial class MainForm : Form
     {
+        public NotifyIcon notifyIcon { get; }
+
         #region Dark Mode
 
         private bool _darkMode = true;
@@ -30,9 +32,43 @@ namespace Renamer
 
         #endregion Dark Mode
 
-        public List<Item> Items = new List<Item>();
+        public MainForm()
+        {
+            this.InitializeComponent();
+            notifyIcon = new NotifyIcon()
+            {
+                Text = "Renamer",
+                Icon = GetNotifyIcon(),
+                Visible = true
+            };
+        }
 
-        public MainForm() => this.InitializeComponent();
+        private Icon GetNotifyIcon()
+        {
+            var icon = Properties.Resources.tray;
+
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+
+                if (key != null)
+                {
+                    var light = (int)key.GetValue("SystemUsesLightTheme") == 1;
+                    
+                    if (light)
+                        icon = Properties.Resources.tray_dark;
+                    else
+                        icon = Properties.Resources.tray_light;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Couldn't set notify icon to system theme");
+                Debug.WriteLine(ex);
+            }
+
+            return icon;
+        }
 
         private void MainForm_Load(object sender, EventArgs e) => DarkMode = Properties.Settings.Default.DarkMode;
 
@@ -40,13 +76,28 @@ namespace Renamer
 
         private void MainForm_DragDrop(object sender, DragEventArgs e)
         {
-            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            var files = (string[])e.Data.GetData(DataFormats.FileDrop);
             var item = new Item(files);
-            Items.Add(item);
-            Process.Start(new ProcessStartInfo(item.tempPath)
+            
+            item.Renamed += (s,ie) =>
+            {
+                notifyIcon.ShowBalloonTip
+                (
+                    2500,
+                    "Files renamed",
+                    ie.TotalFilesChanged > 0
+                        ? $"{ie.TotalFilesChanged} files have been renamed."
+                        : "No files have been renamed",
+                    ToolTipIcon.None
+                );
+            };
+
+            Process.Start(new ProcessStartInfo(item.TempPath)
             {
                 UseShellExecute = true
             });
         }
+
+        private void MainForm_FormClosing(object sender, FormClosingEventArgs e) => notifyIcon.Visible = false;
     }
 }
